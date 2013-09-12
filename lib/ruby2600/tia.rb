@@ -10,6 +10,7 @@ module Ruby2600
 
     HORIZONTAL_BLANK_CLK_COUNT = 68
     VISIBLE_CLK_COUNT = 160
+    FRAME_LENGTH = 192
 
     def initialize
       # Real 2600 starts with random values (and Stella comments warn
@@ -23,25 +24,28 @@ module Ruby2600
       @bl = Ball.new(self)
       @pf = Playfield.new(self)
       @graphics = [@p0, @p1, @m0, @m1, @bl, @pf]
+      @frame_buffer = Array.new(FRAME_LENGTH) { Array.new(VISIBLE_CLK_COUNT, 0) }
 
       @port_level = Array.new(6, false)
       @latch_level = Array.new(6, true)
     end
 
     def frame
-      buffer = []
       scanline while vertical_sync?                 # VSync
       scanline while vertical_blank?                # VBlank
-      buffer << scanline until vertical_blank?      # Picture
+      FRAME_LENGTH.times do |y_pos|                 # Frame (Dislplay Kernel)
+        scanline y_pos
+        break if vertical_sync?
+      end
       scanline until vertical_sync?                 # Overscan
       @frame_counter.track_fps if @frame_counter
-      buffer
+      @frame_buffer
     end
 
-    def scanline
+    def scanline(y_pos = nil)
       intialize_scanline
       wait_horizontal_blank
-      draw_scanline
+      draw_scanline y_pos
     end
 
     def set_port_level(number, level)
@@ -112,16 +116,15 @@ module Ruby2600
       HORIZONTAL_BLANK_CLK_COUNT.times { |color_clock| sync_2600_with color_clock }
     end
 
-    def draw_scanline
-      scanline = Array.new(160, 0)
+    def draw_scanline(y_pos = nil)
+      scanline = @frame_buffer[y_pos] if y_pos
       VISIBLE_CLK_COUNT.times do |pixel|
         @scanline_stage = @late_reset_hblank && pixel < 8 ? :late_hblank : :visible
 
         update_collision_flags
         sync_2600_with pixel + HORIZONTAL_BLANK_CLK_COUNT
 
-        scanline[pixel] = topmost_pixel if @scanline_stage == :visible && !vertical_blank?
-
+        scanline[pixel] = topmost_pixel if scanline && @scanline_stage == :visible && !vertical_blank?
       end
       scanline
     end
